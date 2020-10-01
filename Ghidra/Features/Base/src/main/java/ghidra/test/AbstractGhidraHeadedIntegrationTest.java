@@ -15,19 +15,17 @@
  */
 package ghidra.test;
 
+import java.awt.Point;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.io.File;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 import docking.DialogComponentProvider;
 import docking.action.DockingActionIf;
 import docking.widgets.fieldpanel.FieldPanel;
-import docking.widgets.fieldpanel.field.Field;
-import docking.widgets.fieldpanel.listener.FieldMouseListener;
-import docking.widgets.fieldpanel.support.FieldLocation;
 import ghidra.GhidraTestApplicationLayout;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.framework.ApplicationConfiguration;
@@ -180,8 +178,8 @@ public abstract class AbstractGhidraHeadedIntegrationTest
 	 * @return the new tool
 	 */
 	public static PluginTool saveTool(final Project project, final PluginTool tool) {
-		AtomicReference<PluginTool> ref = new AtomicReference<>();
-		runSwing(() -> {
+
+		PluginTool newTool = runSwing(() -> {
 			ToolChest toolChest = project.getLocalToolChest();
 			ToolTemplate toolTemplate = tool.saveToolToToolTemplate();
 			toolChest.replaceToolTemplate(toolTemplate);
@@ -189,10 +187,10 @@ public abstract class AbstractGhidraHeadedIntegrationTest
 			ToolManager toolManager = project.getToolManager();
 			Workspace workspace = toolManager.getActiveWorkspace();
 			tool.close();
-			ref.set((PluginTool) workspace.runTool(toolTemplate));
+			return workspace.runTool(toolTemplate);
 		});
 
-		return ref.get();
+		return newTool;
 	}
 
 	/**
@@ -215,20 +213,31 @@ public abstract class AbstractGhidraHeadedIntegrationTest
 		codeBrowser.updateNow();
 	}
 
-	@SuppressWarnings("unchecked")
 	protected void click(FieldPanel fp, int clickCount, boolean wait) {
-		MouseEvent ev = new MouseEvent(fp, 0, System.currentTimeMillis(), 0, 0, 0, clickCount,
+		Point cursor = fp.getCursorPoint();
+		click(fp, cursor, clickCount, wait);
+	}
+
+	protected void click(FieldPanel fp, Point p, int clickCount, boolean wait) {
+
+		int x = p.x;
+		int y = p.y;
+		MouseEvent ev = new MouseEvent(fp, 0, System.currentTimeMillis(), 0, x, y, clickCount,
 			false, MouseEvent.BUTTON1);
 
 		runSwing(() -> {
 
-			FieldLocation loc = fp.getCursorLocation();
-			Field field = fp.getCurrentField();
+			MouseListener[] listeners = fp.getMouseListeners();
+			for (MouseListener listener : listeners) {
+				listener.mousePressed(ev);
+			}
 
-			List<FieldMouseListener> listeners =
-				(List<FieldMouseListener>) getInstanceField("fieldMouseListeners", fp);
-			for (FieldMouseListener l : listeners) {
-				l.buttonPressed(loc, field, ev);
+			for (MouseListener listener : listeners) {
+				listener.mouseReleased(ev);
+			}
+
+			for (MouseListener listener : listeners) {
+				listener.mouseClicked(ev);
 			}
 		}, wait);
 	}

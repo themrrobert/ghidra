@@ -55,11 +55,6 @@ import ghidra.util.task.SwingUpdateManager;
 public class TableServicePlugin extends ProgramPlugin
 		implements TableService, DomainObjectListener {
 
-	static final String MAKE_SELECTION_ACTION_NAME = "Make Selection";
-	static final String REMOVE_ITEMS_ACTION_NAME = "Remove Items";
-
-	static final String SHARED_ACTION_OWNER_SUFFIX = " (Tool)";
-
 	private SwingUpdateManager updateMgr;
 	private Map<Program, List<TableComponentProvider<?>>> programMap = new HashMap<>();
 
@@ -81,7 +76,7 @@ public class TableServicePlugin extends ProgramPlugin
 		//               providers are created, as they would only appear in the options at 
 		//               that point.
 		//
-		DeleteTableRowAction.registerDummy(tool);
+		DeleteTableRowAction.registerDummy(tool, getName());
 	}
 
 	@Override
@@ -207,6 +202,20 @@ public class TableServicePlugin extends ProgramPlugin
 		}
 	}
 
+	void removeDialog(MyTableChooserDialog dialog) {
+		Iterator<Program> iter = programToDialogMap.keySet().iterator();
+		while (iter.hasNext()) {
+			Program p = iter.next();
+			List<TableChooserDialog> list = programToDialogMap.get(p);
+			if (list.remove(dialog)) {
+				if (list.size() == 0) {
+					programToDialogMap.remove(p);
+					return;
+				}
+			}
+		}
+	}
+
 	@Override
 	public void domainObjectChanged(DomainObjectChangedEvent ev) {
 		updateMgr.update();
@@ -268,17 +277,4 @@ public class TableServicePlugin extends ProgramPlugin
 		return dialog;
 	}
 
-	public void removeDialog(MyTableChooserDialog dialog) {
-		Iterator<Program> iter = programToDialogMap.keySet().iterator();
-		while (iter.hasNext()) {
-			Program p = iter.next();
-			List<TableChooserDialog> list = programToDialogMap.get(p);
-			if (list.remove(dialog)) {
-				if (list.size() == 0) {
-					programToDialogMap.remove(p);
-					return;
-				}
-			}
-		}
-	}
 }

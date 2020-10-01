@@ -45,6 +45,7 @@ import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.visualization.VisualizationModel;
 import edu.uci.ics.jung.visualization.VisualizationViewer;
 import edu.uci.ics.jung.visualization.picking.PickedState;
+import generic.test.AbstractGenericTest;
 import generic.test.TestUtils;
 import ghidra.app.cmd.label.AddLabelCmd;
 import ghidra.app.cmd.label.SetLabelPrimaryCmd;
@@ -53,7 +54,6 @@ import ghidra.app.plugin.core.clipboard.ClipboardPlugin;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.functiongraph.graph.*;
 import ghidra.app.plugin.core.functiongraph.graph.layout.FGLayoutProvider;
-import ghidra.app.plugin.core.functiongraph.graph.layout.TestFGLayoutProvider;
 import ghidra.app.plugin.core.functiongraph.graph.vertex.*;
 import ghidra.app.plugin.core.functiongraph.mvc.*;
 import ghidra.app.services.*;
@@ -75,7 +75,6 @@ import ghidra.program.util.ProgramSelection;
 import ghidra.test.*;
 import ghidra.util.Msg;
 import ghidra.util.task.RunManager;
-import util.CollectionUtils;
 
 public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedIntegrationTest {
 
@@ -552,15 +551,12 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 	}
 
 	protected void showFunctionGraphProvider() {
-		DockingAction showGraphAction =
-			(DockingAction) TestUtils.getInstanceField("showFunctionGraphAction", graphPlugin);
-		performAction(showGraphAction, true);
+
+		ComponentProvider provider = tool.getComponentProvider("Function Graph");
+		tool.showComponentProvider(provider, true);
 
 		graphProvider = waitForComponentProvider(FGProvider.class);
 		assertNotNull("Graph not shown", graphProvider);
-
-		FGActionManager actionManager = graphProvider.getActionManager();
-		actionManager.setLayoutFinder(() -> CollectionUtils.asSet(new TestFGLayoutProvider()));
 	}
 
 	protected ProgramSelection makeSingleVertexSelectionInCodeBrowser() {
@@ -624,7 +620,7 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 		assertNotNull(action);
 
 		FieldHeaderLocation fhLoc = createFieldHeaderLocation(provider);
-		ActionContext context = new ActionContext(null, fhLoc);
+		ActionContext context = createContext(fhLoc);
 		performAction(action, context, true);
 
 		waitForConditionWithoutFailing(() -> fieldIsVisible(provider, actionName));
@@ -728,7 +724,7 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 		assertNotNull(action);
 
 		FieldHeaderLocation fhLoc = createFieldHeaderLocation(provider);
-		ActionContext context = new ActionContext(null, fhLoc);
+		ActionContext context = createContext(fhLoc);
 		performAction(action, context, false);
 
 		Window dialog = waitForWindow("Reset All Formats?");
@@ -1869,13 +1865,21 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 		return groupVertex;
 	}
 
-	private boolean isUncollapsed(final FGVertex vertex) {
+	protected boolean isUncollapsed(final FGVertex vertex) {
 		final AtomicReference<Boolean> reference = new AtomicReference<>();
 		runSwing(() -> reference.set(vertex.isUncollapsedGroupMember()));
 		return reference.get();
 	}
 
-	private void pickVertices(final Set<FGVertex> vertices) {
+	protected void pickVertex(FGVertex v) {
+		runSwing(() -> {
+			PickedState<FGVertex> pickedState = getPickedState();
+			pickedState.clear();
+			pickedState.pick(v, true);
+		});
+	}
+
+	protected void pickVertices(final Set<FGVertex> vertices) {
 		runSwing(() -> {
 			PickedState<FGVertex> pickedState = getPickedState();
 			pickedState.clear();
@@ -2011,7 +2015,7 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 
 	}
 
-	protected FGData triggerPersistence(String functionAddress) {
+	protected FGData triggerPersistenceAndReload(String functionAddress) {
 		//
 		// Ideally, we would like to save, close and re-open the program so that we can get 
 		// a round-trip saving and reloading.  However, in the test environment, we cannot save 
@@ -2019,8 +2023,9 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 		// the cache (to make sure that we read the settings again), and then verify that the 
 		// data saved in the program has been used to re-group.
 		//
-		graphFunction("0100415a");
-		clearCache();
+		String otherAddress = "0100415a";
+		assertNotEquals(functionAddress, otherAddress);
+		graphFunction(otherAddress);
 
 		//
 		// Graph the original function and make sure that the previously grouped nodes is again
@@ -2267,9 +2272,12 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 
 	protected void goTo(String address) {
 		Address addr = getAddress(address);
-		GoToService goToService = tool.getService(GoToService.class);
-		goToService.goTo(addr);
+		goTo(addr);
+	}
 
+	protected void goTo(Address address) {
+		GoToService goToService = tool.getService(GoToService.class);
+		goToService.goTo(address);
 		waitForBusyGraph();
 	}
 
@@ -2283,7 +2291,7 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 	}
 
 	protected void navigateBack() {
-		String name = "Previous in History Buffer";
+		String name = "Previous Location in History";
 
 		DockingActionIf action = getAction(tool, "NextPrevAddressPlugin", name);
 		performAction(action, true);
@@ -2326,6 +2334,14 @@ public abstract class AbstractFunctionGraphTest extends AbstractGhidraHeadedInte
 		FGData graphData = getFunctionGraphData();
 		assertNotNull(graphData);
 		assertTrue("Unexpectedly received an empty FunctionGraphData", graphData.hasResults());
+	}
+
+	protected void swing(Runnable r) {
+		AbstractGenericTest.runSwing(r);
+	}
+
+	protected <T> T swing(Supplier<T> s) {
+		return AbstractGenericTest.runSwing(s);
 	}
 
 	static class DummyTransferable implements Transferable {

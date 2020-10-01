@@ -16,7 +16,6 @@
 package ghidra.app.plugin.core.symtable;
 
 import java.awt.Cursor;
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
 import javax.swing.ImageIcon;
@@ -38,8 +37,7 @@ import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.symbol.Reference;
-import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.*;
 import ghidra.program.util.ChangeManager;
 import ghidra.program.util.ProgramChangeRecord;
 import ghidra.util.table.GhidraTable;
@@ -74,12 +72,6 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 	final static Cursor WAIT_CURSOR = new Cursor(Cursor.WAIT_CURSOR);
 	final static Cursor NORM_CURSOR = new Cursor(Cursor.DEFAULT_CURSOR);
 
-	final static ImageIcon SYM_GIF = ResourceManager.loadImage("images/table.png");
-	final static ImageIcon REF_GIF = ResourceManager.loadImage("images/table_go.png");
-
-	private DockingAction viewSymTableAction;
-	private DockingAction viewRefTableAction;
-
 	private DockingAction openRefsAction;
 	private DockingAction deleteAction;
 	private DockingAction makeSelectionAction;
@@ -113,10 +105,6 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		symProvider = new SymbolProvider(this);
 		refProvider = new ReferenceProvider(this);
 
-		tool.addComponentProvider(symProvider, false);
-		tool.addComponentProvider(refProvider, false);
-
-		createActions();
 		createSymActions();
 		createRefActions();
 
@@ -133,8 +121,6 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		super.dispose();
 		swingMgr.dispose();
 
-		viewSymTableAction.dispose();
-		viewRefTableAction.dispose();
 		deleteAction.dispose();
 		makeSelectionAction.dispose();
 
@@ -203,7 +189,10 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		if (!symProvider.isVisible()) {
 			return;
 		}
-		if (ev.containsEvent(DomainObject.DO_OBJECT_RESTORED)) {
+		if (ev.containsEvent(DomainObject.DO_OBJECT_RESTORED) ||
+			ev.containsEvent(ChangeManager.DOCR_MEMORY_BLOCK_ADDED) ||
+			ev.containsEvent(ChangeManager.DOCR_MEMORY_BLOCK_REMOVED)) {
+
 			symProvider.reload();
 			refProvider.reload();
 			return;
@@ -220,11 +209,12 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 
 			ProgramChangeRecord rec = (ProgramChangeRecord) doRecord;
 			Symbol symbol = null;
+			SymbolTable symbolTable = currentProgram.getSymbolTable();
 			switch (eventType) {
 				case ChangeManager.DOCR_CODE_ADDED:
 				case ChangeManager.DOCR_CODE_REMOVED:
 					if (rec.getNewValue() instanceof Data) {
-						symbol = currentProgram.getSymbolTable().getPrimarySymbol(rec.getStart());
+						symbol = symbolTable.getPrimarySymbol(rec.getStart());
 						if (symbol != null && symbol.isDynamic()) {
 							symProvider.symbolChanged(symbol);
 							refProvider.symbolChanged(symbol);
@@ -234,9 +224,9 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 
 				case ChangeManager.DOCR_SYMBOL_ADDED:
 					Address addAddr = rec.getStart();
-					Symbol primaryAtAdd = currentProgram.getSymbolTable().getPrimarySymbol(addAddr);
+					Symbol primaryAtAdd = symbolTable.getPrimarySymbol(addAddr);
 					if (primaryAtAdd != null && primaryAtAdd.isDynamic()) {
-						symProvider.symbolRemoved(primaryAtAdd.getID());
+						symProvider.symbolRemoved(primaryAtAdd);
 					}
 					symbol = (Symbol) rec.getNewValue();
 					symProvider.symbolAdded(symbol);
@@ -246,10 +236,11 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 				case ChangeManager.DOCR_SYMBOL_REMOVED:
 					Address removeAddr = rec.getStart();
 					Long symbolID = (Long) rec.getNewValue();
-					symProvider.symbolRemoved(symbolID.longValue());
-					refProvider.symbolRemoved(symbolID.longValue());
-					Symbol primaryAtRemove =
-						currentProgram.getSymbolTable().getPrimarySymbol(removeAddr);
+					Symbol removedSymbol =
+						symbolTable.createSymbolPlaceholder(removeAddr, symbolID);
+					symProvider.symbolRemoved(removedSymbol);
+					refProvider.symbolRemoved(removedSymbol);
+					Symbol primaryAtRemove = symbolTable.getPrimarySymbol(removeAddr);
 					if (primaryAtRemove != null && primaryAtRemove.isDynamic()) {
 						symProvider.symbolAdded(primaryAtRemove);
 					}
@@ -284,7 +275,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 					break;
 				case ChangeManager.DOCR_MEM_REFERENCE_ADDED:
 					Reference ref = (Reference) rec.getObject();
-					symbol = currentProgram.getSymbolTable().getSymbol(ref);
+					symbol = symbolTable.getSymbol(ref);
 					if (symbol != null) {
 						symProvider.symbolChanged(symbol);
 						refProvider.symbolChanged(symbol);
@@ -294,11 +285,12 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 					ref = (Reference) rec.getObject();
 					Address toAddr = ref.getToAddress();
 					if (toAddr.isMemoryAddress()) {
-						symbol = currentProgram.getSymbolTable().getSymbol(ref);
+						symbol = symbolTable.getSymbol(ref);
 						if (symbol == null) {
-							long id = currentProgram.getSymbolTable().getDynamicSymbolID(
-								ref.getToAddress());
-							symProvider.symbolRemoved(id);
+
+							long id = symbolTable.getDynamicSymbolID(ref.getToAddress());
+							removedSymbol = symbolTable.createSymbolPlaceholder(toAddr, id);
+							symProvider.symbolRemoved(removedSymbol);
 						}
 						else {
 							refProvider.symbolChanged(symbol);
@@ -308,19 +300,12 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 
 				case ChangeManager.DOCR_EXTERNAL_ENTRY_POINT_ADDED:
 				case ChangeManager.DOCR_EXTERNAL_ENTRY_POINT_REMOVED:
-					Symbol[] symbols = currentProgram.getSymbolTable().getSymbols(rec.getStart());
+					Symbol[] symbols = symbolTable.getSymbols(rec.getStart());
 					for (Symbol element : symbols) {
 						symProvider.symbolChanged(element);
 						refProvider.symbolChanged(element);
 					}
 					break;
-
-				case ChangeManager.DOCR_MEMORY_BLOCK_ADDED:
-				case ChangeManager.DOCR_MEMORY_BLOCK_REMOVED:
-					symProvider.reload();
-					refProvider.reload();
-					break;
-
 			}
 		}
 	}
@@ -357,38 +342,10 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		}
 	}
 
-	private void createActions() {
-		viewSymTableAction = new DockingAction("View Symbol Table", getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				tool.showComponentProvider(symProvider, true);
-			}
-		};
-		viewSymTableAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/table.png"), "View"));
-		viewSymTableAction.setKeyBindingData(
-			new KeyBindingData(KeyEvent.VK_T, InputEvent.CTRL_DOWN_MASK));
-
-		viewSymTableAction.setDescription("Display Symbol Table");
-		tool.addAction(viewSymTableAction);
-
-		viewRefTableAction = new DockingAction("View Symbol References", getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				tool.showComponentProvider(refProvider, true);
-			}
-		};
-		viewRefTableAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/table_go.png"), "View"));
-
-		viewRefTableAction.setDescription("Display Symbol References");
-		tool.addAction(viewRefTableAction);
-	}
-
 	private void createSymActions() {
 		String popupGroup = "1";
 
-		openRefsAction = new DockingAction("Symbol References", getName()) {
+		openRefsAction = new DockingAction("Symbol References", getName(), KeyBindingType.SHARED) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				refProvider.open();
@@ -400,7 +357,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 			new MenuData(new String[] { "Symbol References" }, icon, popupGroup));
 		openRefsAction.setToolBarData(new ToolBarData(icon));
 
-		openRefsAction.setDescription("Symbol References");
+		openRefsAction.setDescription("Display Symbol References");
 		tool.addLocalAction(symProvider, openRefsAction);
 
 		deleteAction = new DockingAction("Delete Symbols", getName()) {
@@ -434,13 +391,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		DockingAction editExternalLocationAction = new EditExternalLocationAction(this);
 		tool.addLocalAction(symProvider, editExternalLocationAction);
 
-		makeSelectionAction = new MakeProgramSelectionAction(getName(), symProvider.getTable()) {
-			@Override
-			protected void makeSelection(ActionContext context) {
-				symProvider.makeSelection();
-			}
-		};
-
+		makeSelectionAction = new MakeProgramSelectionAction(this, symProvider.getTable());
 		makeSelectionAction.getPopupMenuData().setMenuGroup(popupGroup);
 
 		tool.addLocalAction(symProvider, makeSelectionAction);

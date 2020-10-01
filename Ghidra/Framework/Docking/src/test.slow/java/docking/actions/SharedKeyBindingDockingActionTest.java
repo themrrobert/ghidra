@@ -35,9 +35,11 @@ import docking.tool.util.DockingToolConstants;
 import ghidra.framework.options.ToolOptions;
 import ghidra.util.Msg;
 import ghidra.util.SpyErrorLogger;
+import ghidra.util.exception.AssertException;
 
 public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 
+	private static final String NON_SHARED_NAME = "Non-Shared Action Name";
 	private static final String SHARED_NAME = "Shared Action Name";
 	private static final String SHARED_OWNER = SharedStubKeyBindingAction.SHARED_OWNER;
 
@@ -52,7 +54,7 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 
 	private SpyErrorLogger spyLogger = new SpyErrorLogger();
 
-	private DockingTool tool;
+	private Tool tool;
 
 	@Before
 	public void setUp() {
@@ -64,8 +66,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_SameDefaultKeyBindings() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		tool.addAction(action1);
 		tool.addAction(action2);
@@ -79,8 +81,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_OptionsChange() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		tool.addAction(action1);
 		tool.addAction(action2);
@@ -97,8 +99,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_DifferentDefaultKeyBindings() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_DIFFERENT_THAN_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_DIFFERENT_THAN_1);
 
 		tool.addAction(action1);
 		tool.addAction(action2);
@@ -113,8 +115,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_NoDefaultKeyBindings() {
 
-		TestAction action1 = new TestAction(OWNER_1, null);
-		TestAction action2 = new TestAction(OWNER_2, null);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, null);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, null);
 
 		tool.addAction(action1);
 		tool.addAction(action2);
@@ -128,8 +130,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 
 	@Test
 	public void testSharedKeyBinding_OneDefaultOneUndefinedDefaultKeyBinding() {
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, null);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, null);
 
 		tool.addAction(action1);
 		tool.addAction(action2);
@@ -144,8 +146,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_RemoveAction() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		tool.addAction(action1);
 		tool.addAction(action2);
@@ -164,10 +166,17 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_AddSameActionTwice() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
 
 		tool.addAction(action1);
-		tool.addAction(action1);
+
+		try {
+			tool.addAction(action1);
+			fail("Did not get expected exception");
+		}
+		catch (AssertException e) {
+			// expected
+		}
 
 		assertOnlyOneVersionOfActionInTool(action1);
 
@@ -179,8 +188,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_OnlyOneEntryInOptions() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		tool.addAction(action1);
 		tool.addAction(action2);
@@ -196,8 +205,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_AddActionAfterOptionHasChanged() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		tool.addAction(action1);
 		KeyStroke newKs = KeyStroke.getKeyStroke(KeyEvent.VK_Z, 0);
@@ -214,8 +223,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_AddActionAfterOptionHasChanged_RepeatAddRemove() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		tool.addAction(action1);
 		KeyStroke newKs = KeyStroke.getKeyStroke(KeyEvent.VK_Z, 0);
@@ -239,8 +248,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_SameDefaultKeyBindings_LocalAction() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		DummyComponentProvider provider = new DummyComponentProvider();
 		tool.addLocalAction(provider, action1);
@@ -255,8 +264,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_RemoveAction_LocalAction() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		DummyComponentProvider provider = new DummyComponentProvider();
 		tool.addLocalAction(provider, action1);
@@ -276,8 +285,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	@Test
 	public void testSharedKeyBinding_RemoveComonentActions() {
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action2 = new TestAction(OWNER_2, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action2 = new SharedNameAction(OWNER_2, DEFAULT_KS_1);
 
 		DummyComponentProvider provider = new DummyComponentProvider();
 		tool.addLocalAction(provider, action1);
@@ -294,7 +303,7 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 	}
 
 	@Test
-	public void testNonSharedKeyBinding_SameActionAddedTwice() {
+	public void testSharedKeyBinding_SameActionAddedTwice() {
 		//
 		// We support adding the same action twice.  (This can happen when a transient component
 		// provider is repeatedly shown, such as a search results provider.)   Make sure we get
@@ -304,8 +313,8 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 		//       same name and owner.
 		//
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action1Copy = new TestAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action1Copy = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
 
 		tool.addAction(action1);
 		tool.addAction(action1Copy);
@@ -313,6 +322,35 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 		assertActionInTool(action1Copy);
 
 		assertNoLoggedMessages();
+
+		tool.removeAction(action1);
+		assertActionNotInTool(action1);
+		assertActionInTool(action1Copy);
+
+		tool.removeAction(action1Copy);
+		assertActionNotInTool(action1Copy);
+	}
+
+	@Test
+	public void testSharedKeyBinding_DifferentActionsWithSameFullName() {
+		//
+		// We support adding the same action twice.  (This can happen when a transient component
+		// provider is repeatedly shown, such as a search results provider.)   Make sure we get
+		// a warning if the same action is added twice, but with different key bindings.
+		//
+		// Note: in this context, two actions are considered to be the same if they share the 
+		//       same name and owner.
+		//
+
+		SharedNameAction action1 = new SharedNameAction(OWNER_1, DEFAULT_KS_1);
+		SharedNameAction action1Copy = new SharedNameAction(OWNER_1, DEFAULT_KS_DIFFERENT_THAN_1);
+
+		tool.addAction(action1);
+		tool.addAction(action1Copy);
+		assertActionInTool(action1);
+		assertActionInTool(action1Copy);
+
+		assertImproperDefaultBindingMessage();
 
 		tool.removeAction(action1);
 		assertActionNotInTool(action1);
@@ -333,8 +371,9 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 		//       same name and owner.
 		//
 
-		TestAction action1 = new TestAction(OWNER_1, DEFAULT_KS_1);
-		TestAction action1Copy = new TestAction(OWNER_1, DEFAULT_KS_DIFFERENT_THAN_1);
+		TestNonSharedAction action1 = new TestNonSharedAction(OWNER_1, DEFAULT_KS_1);
+		TestNonSharedAction action1Copy =
+			new TestNonSharedAction(OWNER_1, DEFAULT_KS_DIFFERENT_THAN_1);
 
 		tool.addAction(action1);
 		tool.addAction(action1Copy);
@@ -351,17 +390,47 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 		assertActionNotInTool(action1Copy);
 	}
 
+	@Test
+	public void testNonKeyBindingAction_CannotSetKeyBinding() {
+
+		DockingAction action = new DockingAction("Test Action", "Test Action Owner", false) {
+			@Override
+			public void actionPerformed(ActionContext context) {
+				// stub
+			}
+		};
+
+		action.setKeyBindingData(new KeyBindingData(DEFAULT_KS_1));
+		assertNull(action.getKeyBindingData());
+		spyLogger.assertLogMessage("does", "not", "support", "bindings");
+	}
+
+	@Test
+	public void testNonKeyBindingAction_CannotSetKeyBinding_NullBinding() {
+
+		DockingAction action = new DockingAction("Test Action", "Test Action Owner", false) {
+			@Override
+			public void actionPerformed(ActionContext context) {
+				// stub
+			}
+		};
+
+		action.setKeyBindingData(null);
+		assertNull(action.getKeyBindingData());
+		spyLogger.assertLogMessage("does", "not", "support", "bindings");
+	}
+
 //==================================================================================================
 // Private Methods
 //==================================================================================================
 
 	private void assertSharedStubInTool() {
-		ToolActions actionManager = (ToolActions) getInstanceField("actionMgr", tool);
+		ToolActions actionManager = (ToolActions) getInstanceField("toolActions", tool);
 		DockingActionIf action = actionManager.getSharedStubKeyBindingAction(SHARED_NAME);
 		assertNotNull("Shared action stub is not in the tool", action);
 	}
 
-	private void assertOnlyOneVersionOfActionInTool(TestAction action) {
+	private void assertOnlyOneVersionOfActionInTool(DockingActionIf action) {
 
 		// this  method will fail if more than one action is registered
 		DockingActionIf registeredAction = getAction(tool, action.getOwner(), action.getName());
@@ -369,7 +438,7 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 			registeredAction);
 	}
 
-	private void assertActionInTool(TestAction action) {
+	private void assertActionInTool(DockingActionIf action) {
 
 		Set<DockingActionIf> actions = getActionsByName(tool, action.getName());
 		for (DockingActionIf toolAction : actions) {
@@ -381,7 +450,7 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 		fail("Action is not in the tool: " + action);
 	}
 
-	private void assertActionNotInTool(TestAction action) {
+	private void assertActionNotInTool(DockingActionIf action) {
 		Set<DockingActionIf> actions = getActionsByName(tool, action.getName());
 		for (DockingActionIf toolAction : actions) {
 			assertNotSame(toolAction, action);
@@ -415,7 +484,7 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 		spyLogger.assertLogMessage("shared", "key", "binding", "actions", "different", "default");
 	}
 
-	private void assertKeyBinding(TestAction action, KeyStroke expectedKs) {
+	private void assertKeyBinding(SharedNameAction action, KeyStroke expectedKs) {
 		assertEquals(expectedKs, action.getKeyBinding());
 	}
 
@@ -423,19 +492,24 @@ public class SharedKeyBindingDockingActionTest extends AbstractDockingTest {
 // Inner Classes
 //==================================================================================================
 
-	private class TestAction extends DockingAction {
+	private class SharedNameAction extends DockingAction {
 
-		public TestAction(String owner, KeyStroke ks) {
-			super(SHARED_NAME, owner);
-
-			if (ks != null) {
-				setKeyBindingData(new KeyBindingData(ks));
-			}
+		public SharedNameAction(String owner, KeyStroke ks) {
+			super(SHARED_NAME, owner, KeyBindingType.SHARED);
+			setKeyBindingData(new KeyBindingData(ks));
 		}
 
 		@Override
-		public boolean usesSharedKeyBinding() {
-			return true;
+		public void actionPerformed(ActionContext context) {
+			fail("Action performed should not have been called");
+		}
+	}
+
+	private class TestNonSharedAction extends DockingAction {
+
+		public TestNonSharedAction(String owner, KeyStroke ks) {
+			super(NON_SHARED_NAME, owner, KeyBindingType.INDIVIDUAL);
+			setKeyBindingData(new KeyBindingData(ks));
 		}
 
 		@Override

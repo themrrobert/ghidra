@@ -23,6 +23,37 @@ import javax.swing.*;
 import docking.ActionContext;
 import docking.help.HelpDescriptor;
 
+/**
+ * The base interface for clients that wish to create commands to be registered with a tool.
+ * 
+ * <p>An action may appear in a primary menu, a popup menu or a toolbar.   Further, an action 
+ * may have a key binding assigned.
+ * 
+ * <p>The particular support for key bindings is defined by {@link KeyBindingType}.   Almost all
+ * client actions will use the default setting of {@link KeyBindingType#INDIVIDUAL}.   To control
+ * the level of key binding support, you can pass the desired {@link KeyBindingType} to the
+ * base implementation of this interface.
+ * 
+ * <p>ActionContext is a key concept for tool actions so that they can be context sensitive if 
+ * appropriate. The context provides a 
+ * consistent way for plugins and components to share tool state with actions. Actions can then
+ * use that context to make decisions, such as if they should be enabled or added to a popup menu.
+ * The context information is also typically used when the action is invoked.  For example, an
+ * action context from a table element may provide the row in a table component that is selected and
+ * then a "delete table row" action can use that information to be enabled when a table selection 
+ * exists and then delete that row if the action is invoked.
+ * 
+ * <p> To make the overall action experience more convenient for the user, action processing
+ * supports the concept of a "default tool context".  This allows actions to work on a more global
+ * level than just the component that is focused.  The idea is that if an action is not valid for
+ * the current focused context (and it has be declared to work this way using 
+ * the {@link #setSupportsDefaultToolContext(boolean)}), then it can be validated against the default 
+ * tool context.  The "default tool context" is defined to be the action context of the tool's 
+ * primary component.  This is primarily intended for tool-level actions which are the ones that appear
+ * in the tool's main menu bar or toolbar.  This allows the tool actions to mostly work on the
+ * tool's main component context regardless of what has focus, and yet still work on the  
+ * focused component if appropriate (such as a snapshot of the main component).  
+ */
 public interface DockingActionIf extends HelpDescriptor {
 	public static final String ENABLEMENT_PROPERTY = "enabled";
 	public static final String GLOBALCONTEXT_PROPERTY = "globalContext";
@@ -43,6 +74,16 @@ public interface DockingActionIf extends HelpDescriptor {
 	 * @return the owner  
 	 */
 	public String getOwner();
+
+	/**
+	 * Returns a description of this actions owner.  For most actions this will return the 
+	 * same value as {@link #getOwner()}.
+	 * 
+	 * @return the description
+	 */
+	public default String getOwnerDescription() {
+		return getOwner();
+	}
 
 	/**
 	 * Returns a short description of this action. Generally used for a tooltip
@@ -72,9 +113,28 @@ public interface DockingActionIf extends HelpDescriptor {
 	 * Enables or disables the action
 	 *
 	 * @param newValue  true to enable the action, false to disable it
-	 * @return the enabled value of the action after this call
 	 */
-	public boolean setEnabled(boolean newValue);
+	public void setEnabled(boolean newValue);
+
+	/**
+	 * Sets whether or not this action should be activated using the default tool context if the
+	 * current focused provider's context is not valid for this action.  Typically, this should
+	 * be set on actions that are mostly independent of which component has focus such as those
+	 * on the tool's main toolbar.   
+	 * 
+	 * @param newValue if true, the action will be activated using the default tool context if the
+	 * local context is not valid for this action.  If false, the action will only ever be
+	 * activated using the focused context.
+	 */
+	public void setSupportsDefaultToolContext(boolean newValue);
+
+	/**
+	 * Returns true if this action can be activated using the default tool context if the focused
+	 * context is invalid for this action. See {@link #setSupportsDefaultToolContext(boolean)}
+	 * @return true if this action can be activated using the default tool context if the local
+	 * context is invalid for this action.
+	 */
+	public boolean supportsDefaultToolContext();
 
 	/**
 	 * Returns true if the action is enabled.
@@ -99,7 +159,7 @@ public interface DockingActionIf extends HelpDescriptor {
 
 	/**
 	 * Returns the {@link ToolBarData} to be used to put this action in a toolbar.  The ToolBarData will be
-	 * null if the action in not set to be in a tool bar.
+	 * null if the action in not set to be in a toolbar.
 	 * @return the {@link ToolBarData} for the popup menu or null if the action is not in a popup menu.
 	 */
 	public ToolBarData getToolBarData();
@@ -173,19 +233,6 @@ public interface DockingActionIf extends HelpDescriptor {
 	public boolean isValidContext(ActionContext context);
 
 	/**
-	 * Method that actions implement to indicate if this action is valid (knows how to work with, is
-	 * appropriate for) for the given global context.  This method is just like the isValidContext
-	 * and in fact calls that method by default.  Many actions will work with either the active
-	 * provider context or the global (the main listing) context if the local context is not valid.
-	 * If you want a global action to only work on the global context, then override this method
-	 * and return false.
-	 * 
-	 * @param globalContext the global {@link ActionContext} from the active provider.
-	 * @return true if this action is appropriate for the given context.
-	 */
-	public boolean isValidGlobalContext(ActionContext globalContext);
-
-	/**
 	 * Method used to determine if this action should be enabled for the given context.  
 	 * <p>
 	 * <b>This is the method implementors override to control when the action may be used.</b>
@@ -248,10 +295,17 @@ public interface DockingActionIf extends HelpDescriptor {
 	public boolean shouldAddToWindow(boolean isMainWindow, Set<Class<?>> contextTypes);
 
 	/**
-	 * Returns true if this action can have its keybinding information changed by the user.  
-	 * @return true if this action can have its keybinding information changed by the user.
+	 * Returns this actions level of support for key binding accelerator keys
+	 * 
+	 * <p>Actions support key bindings by default.  Some reserved actions do not support 
+	 * key bindings, while others wish to share the same key bindings with multiple, equivalent
+	 * actions (this allows the user to set one binding that works in many different contexts).
+	 * 
+	 * @return the key binding support
 	 */
-	public boolean isKeyBindingManaged();
+	public default KeyBindingType getKeyBindingType() {
+		return KeyBindingType.INDIVIDUAL;
+	}
 
 	/**
 	 * Sets the {@link KeyBindingData} on an action to either assign a keybinding or remove it
@@ -274,20 +328,7 @@ public interface DockingActionIf extends HelpDescriptor {
 	public void setUnvalidatedKeyBindingData(KeyBindingData newKeyBindingData);
 
 	/**
-	 * Returns true if this action shares a keybinding with other actions.  If this returns true, 
-	 * then this action, and any action that shares a name with this action, will be updated
-	 * to the same key binding value whenever the key binding options change.
-	 * 
-	 * <p>This will be false for the vast majority of actions.  If you are unsure if your action
-	 * should use a shared keybinding, then do not set this value to true.
-	 * 
-	 * <p>This value is not meant to change over the life of the action.  Thus, there is no
-	 * <code>set</code> method to change this value.  Rather, you should override this method
-	 * to return <code>true</code> as desired.
-	 * 
-	 * @return true to share a shared keybinding
+	 * Called when the action's owner is removed from the tool
 	 */
-	public default boolean usesSharedKeyBinding() {
-		return false;
-	}
+	public void dispose();
 }

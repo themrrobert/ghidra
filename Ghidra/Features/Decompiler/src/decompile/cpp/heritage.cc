@@ -66,7 +66,7 @@ LocationMap::iterator LocationMap::add(Address addr,int4 size,int4 pass,int4 &in
 /// describing the associated range and when it was heritaged.
 /// \param addr is the given address
 /// \return the iterator to the SizeMap entry or the end iterator is the address is unheritaged
-LocationMap::iterator LocationMap::find(Address addr)
+LocationMap::iterator LocationMap::find(const Address &addr)
 
 {
   iterator iter = themap.upper_bound(addr); // First range after address
@@ -80,7 +80,7 @@ LocationMap::iterator LocationMap::find(Address addr)
 /// Return the pass number when the given address was heritaged, or -1 if it was not heritaged
 /// \param addr is the given address
 /// \return the pass number of -1
-int4 LocationMap::findPass(Address addr) const
+int4 LocationMap::findPass(const Address &addr) const
 
 {
   map<Address,SizePass>::const_iterator iter = themap.upper_bound(addr); // First range after address
@@ -279,8 +279,8 @@ Varnode *Heritage::normalizeWriteSize(Varnode *vn,const Address &addr,int4 size)
       pieceaddr = addr;
     else
       pieceaddr = addr + (overlap+vn->getSize());
-    if (op->isCall() && callOpIndirectEffect(pieceaddr,mostsigsize,op)) {	// Unless CALL definitely has no effect on piece
-      newop = fd->newIndirectCreation(op,pieceaddr,mostsigsize,false);		// Don't create a new big read if write is from a CALL
+    if (op->isCall() && callOpIndirectEffect(pieceaddr,mostsigsize,op)) {	// Does CALL have an effect on piece
+      newop = fd->newIndirectCreation(op,pieceaddr,mostsigsize,false);	// Don't create a new big read if write is from a CALL
       mostvn = newop->getOut();
     }
     else {
@@ -672,6 +672,13 @@ bool LoadGuard::isGuarded(const Address &addr) const
   return true;
 }
 
+/// \brief Make final determination of what range new LoadGuards are protecting
+///
+/// Actual LOAD operations are guarded with an initial version of the LoadGuard record.
+/// Now that heritage has completed, a full analysis of each LOAD is conducted, using
+/// value set analysis, to reach a conclusion about what range of stack values the
+/// LOAD might actually alias.  All new LoadGuard records are updated with the analysis,
+/// which then informs handling of LOAD COPYs and possible later heritage passes.
 void Heritage::analyzeNewLoadGuards(void)
 
 {
@@ -793,10 +800,15 @@ bool Heritage::protectFreeStores(AddrSpace *spc,vector<PcodeOp *> &freeStores)
     ++iter;
     if (op->isDead()) continue;
     Varnode *vn = op->getIn(1);
-    if (vn->isWritten()) {
-      PcodeOp *copyOp = vn->getDef();
-      if (copyOp->code() == CPUI_COPY)
-	vn = copyOp->getIn(0);
+    while (vn->isWritten()) {
+      PcodeOp *defOp = vn->getDef();
+      OpCode opc = defOp->code();
+      if (opc == CPUI_COPY)
+	vn = defOp->getIn(0);
+      else if (opc == CPUI_INT_ADD && defOp->getIn(1)->isConstant())
+	vn = defOp->getIn(0);
+      else
+	break;
     }
     if (vn->isFree() && vn->getSpace() == spc) {
       fd->opMarkSpacebasePtr(op);	// Mark op as spacebase STORE, even though we're not sure
@@ -809,7 +821,7 @@ bool Heritage::protectFreeStores(AddrSpace *spc,vector<PcodeOp *> &freeStores)
 
 /// \brief Trace input stack-pointer to any indexed loads
 ///
-/// Look for expressions of the form  val = *(SP(i) + vn + #c), where the base stack
+/// Look for expressions of the form  val = *(SP(i) + vn + \#c), where the base stack
 /// pointer has an (optional) constant added to it and a non-constant index, then a
 /// value is loaded from the resulting address.  The LOAD operations are added to the list
 /// of ops that potentially need to be guarded during a heritage pass.  The routine can
@@ -906,8 +918,17 @@ bool Heritage::discoverIndexedStackPointers(AddrSpace *spc,vector<PcodeOp *> &fr
 	}
 	case CPUI_STORE:
 	{
-	  if (curNode.traversals != 0) {
-	    generateStoreGuard(curNode, op, spc);
+	  if (op->getIn(1) == curNode.vn) {	// Make sure the STORE pointer comes from our path
+	    if (curNode.traversals != 0) {
+	      generateStoreGuard(curNode, op, spc);
+	    }
+	    else {
+	      // If there were no traversals (of non-constant ADD or MULTIEQUAL) then the
+	      // pointer is equal to the stackpointer plus a constant (through an indirect is possible)
+	      // This will likely get resolved in the next heritage pass, but we leave the
+	      // spacebaseptr mark on, so that that the indirects don't get removed
+	      fd->opMarkSpacebasePtr(op);
+	    }
 	  }
 	  break;
 	}
@@ -1029,6 +1050,42 @@ void Heritage::guard(const Address &addr,int4 size,vector<Varnode *> &read,vecto
   }
 }
 
+/// \brief Guard an address range that is larger than any single parameter
+///
+/// In this situation, an address range is being heritaged, but only a piece of
+/// it can be a parameter for a given call. We have to construct a SUBPIECE that
+/// pulls out the potential parameter.
+/// \param fc is the call site potentially taking a parameter
+/// \param addr is the starting address of the range
+/// \param transAddr is the start of the same range from the callee's stack perspective
+/// \param size is the size of the range in bytes
+void Heritage::guardCallOverlappingInput(FuncCallSpecs *fc,const Address &addr,const Address &transAddr,int4 size)
+
+{
+  VarnodeData vData;
+
+  if (fc->getBiggestContainedInputParam(transAddr, size, vData)) {
+    ParamActive *active = fc->getActiveInput();
+    Address truncAddr(vData.space,vData.offset);
+    if (active->whichTrial(truncAddr, size) < 0) { // If not already a trial
+      int4 truncateAmount = transAddr.justifiedContain(size, truncAddr, vData.size, false);
+      int4 diff = (int4)(truncAddr.getOffset() - transAddr.getOffset());
+      truncAddr = addr + diff;		// Convert truncated Address to caller's perspective
+      PcodeOp *op = fc->getOp();
+      PcodeOp *subpieceOp = fd->newOp(2,op->getAddr());
+      fd->opSetOpcode(subpieceOp, CPUI_SUBPIECE);
+      Varnode *wholeVn = fd->newVarnode(size,addr);
+      wholeVn->setActiveHeritage();
+      fd->opSetInput(subpieceOp,wholeVn,0);
+      fd->opSetInput(subpieceOp,fd->newConstant(4,truncateAmount),1);
+      Varnode *vn = fd->newVarnodeOut(vData.size, truncAddr, subpieceOp);
+      fd->opInsertBefore(subpieceOp,op);
+      active->registerTrial(truncAddr, vData.size);
+      fd->opInsertInput(op, vn, op->numInput());
+    }
+  }
+}
+
 /// \brief Guard CALL/CALLIND ops in preparation for renaming algorithm
 ///
 /// For the given address range, we decide what the data-flow effect is
@@ -1081,16 +1138,21 @@ void Heritage::guardCalls(uint4 flags,const Address &addr,int4 size,vector<Varno
 	  tryregister = false;
 	}
       }
-      Address taddr(spc,off);
-      if (tryregister && fc->possibleInputParam(taddr,size)) {
-	ParamActive *active = fc->getActiveInput();
-	if (active->whichTrial(taddr,size)<0) { // If not already a trial
-	  PcodeOp *op = fc->getOp();
-	  active->registerTrial(taddr,size);
-	  Varnode *vn = fd->newVarnode(size,addr);
-	  vn->setActiveHeritage();
-	  fd->opInsertInput(op,vn,op->numInput());
+      Address transAddr(spc,off);	// Address relative to callee's stack
+      if (tryregister) {
+	int4 inputCharacter = fc->characterizeAsInputParam(transAddr,size);
+	if (inputCharacter == 1) {		// Call could be using this range as an input parameter
+	  ParamActive *active = fc->getActiveInput();
+	  if (active->whichTrial(transAddr,size)<0) { // If not already a trial
+	    PcodeOp *op = fc->getOp();
+	    active->registerTrial(transAddr,size);
+	    Varnode *vn = fd->newVarnode(size,addr);
+	    vn->setActiveHeritage();
+	    fd->opInsertInput(op,vn,op->numInput());
+	  }
 	}
+	else if (inputCharacter == 2)		// Call may be using part of this range as an input parameter
+	  guardCallOverlappingInput(fc, addr, transAddr, size);
       }
     }
     // We do not guard the call if the effect is "unaffected" or "reload"
@@ -2167,11 +2229,16 @@ void Heritage::buildInfoList(void)
 
 {
   if (!infolist.empty()) return;
-  AddrSpace *spc;
   const AddrSpaceManager *manage = fd->getArch();
+  infolist.resize(manage->numSpaces());
   for(int4 i=0;i<manage->numSpaces();++i) {
-    spc = manage->getSpace(i);
-    infolist.push_back(HeritageInfo(spc,spc->getDelay(),spc->getDeadcodeDelay()));
+    AddrSpace *spc = manage->getSpace(i);
+    if (spc == (AddrSpace *)0)
+      infolist[i].set((AddrSpace *)0,0,0);
+    else if (!spc->isHeritaged())
+      infolist[i].set((AddrSpace *)0,spc->getDelay(),spc->getDeadcodeDelay());
+    else
+      infolist[i].set(spc,spc->getDelay(),spc->getDeadcodeDelay());
   }
 }
 
@@ -2182,7 +2249,6 @@ void Heritage::heritage(void)
 
 {
   VarnodeLocSet::const_iterator iter,enditer;
-  AddrSpace *space;
   HeritageInfo *info;
   Varnode *vn;
   bool needwarning;
@@ -2190,7 +2256,6 @@ void Heritage::heritage(void)
   int4 reprocessStackCount = 0;
   AddrSpace *stackSpace = (AddrSpace *)0;
   vector<PcodeOp *> freeStores;
-  const AddrSpaceManager *manage = fd->getArch();
   PreferSplitManager splitmanage;
 
   if (maxdepth == -1)		// Has a restructure been forced
@@ -2201,21 +2266,20 @@ void Heritage::heritage(void)
     splitmanage.init(fd,&fd->getArch()->splitrecords);
     splitmanage.split();
   }
-  for(int4 i=0;i<manage->numSpaces();++i) {
-    space = manage->getSpace(i);
-    if (!space->isHeritaged()) continue;
-    info = getInfo(space);
+  for(int4 i=0;i<infolist.size();++i) {
+    info = &infolist[i];
+    if (!info->isHeritaged()) continue;
     if (pass < info->delay) continue; // It is too soon to heritage this space
     if (!info->loadGuardSearch) {
       info->loadGuardSearch = true;
       if (discoverIndexedStackPointers(info->space,freeStores,true)) {
-	reprocessStackCount += 1;
-	stackSpace = space;
+	    reprocessStackCount += 1;
+	    stackSpace = info->space;
       }
     }
     needwarning = false;
-    iter = fd->beginLoc(space);
-    enditer = fd->endLoc(space);
+    iter = fd->beginLoc(info->space);
+    enditer = fd->endLoc(info->space);
 
     while(iter != enditer) {
       vn = *iter++;
@@ -2290,7 +2354,7 @@ const LoadGuard *Heritage::getStoreGuard(PcodeOp *op) const
 
 /// \brief Get the number times heritage was performed for the given address space
 ///
-/// A negative number indicates the number of passes to be wait before the first
+/// A negative number indicates the number of passes to wait before the first
 /// heritage will occur.
 /// \param spc is the given address space
 /// \return the number of heritage passes performed
@@ -2298,9 +2362,9 @@ int4 Heritage::numHeritagePasses(AddrSpace *spc) const
 
 {
   const HeritageInfo *info = getInfo(spc);
-  if (info == (const HeritageInfo *)0)
+  if (!info->isHeritaged())
     throw LowlevelError("Trying to calculate passes for non-heritaged space");
-  return (info->delay - pass);
+  return (pass - info->delay);
 }
 
 /// Record that Varnodes have been removed from the given space so that we can
@@ -2310,8 +2374,6 @@ void Heritage::seenDeadCode(AddrSpace *spc)
 
 {
   HeritageInfo *info = getInfo(spc);
-  if (info == (HeritageInfo *)0)
-    throw LowlevelError("Informed of deadcode removal for non-heritaged space");
   info->deadremoved = 1;
 }
 
@@ -2324,8 +2386,6 @@ int4 Heritage::getDeadCodeDelay(AddrSpace *spc) const
 
 {
   const HeritageInfo *info = getInfo(spc);
-  if (info == (const HeritageInfo *)0)
-    throw LowlevelError("Could not get heritage delay for space: "+spc->getName());
   return info->deadcodedelay;
 }
 
@@ -2338,8 +2398,6 @@ void Heritage::setDeadCodeDelay(AddrSpace *spc,int4 delay)
 
 {
   HeritageInfo *info = getInfo(spc);
-  if (info == (HeritageInfo *)0)
-    throw LowlevelError("Setting heritage delay for non-heritaged space");
   if (delay < info->delay)
     throw LowlevelError("Illegal deadcode delay setting");
   info->deadcodedelay = delay;
@@ -2354,8 +2412,6 @@ bool Heritage::deadRemovalAllowed(AddrSpace *spc) const
 
 {
   const HeritageInfo *info = getInfo(spc);
-  if (info == (HeritageInfo *)0)
-    throw LowlevelError("Heritage query for non-heritaged space");
   return (pass > info->deadcodedelay);
 }
 
@@ -2370,8 +2426,6 @@ bool Heritage::deadRemovalAllowedSeen(AddrSpace *spc)
 
 {
   HeritageInfo *info = getInfo(spc);
-  if (info == (HeritageInfo *)0)
-    throw LowlevelError("Heritage query for non-heritaged space");
   bool res = (pass > info->deadcodedelay);
   if (res)
     info->deadremoved = 1;

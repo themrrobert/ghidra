@@ -27,6 +27,8 @@ import javax.swing.*;
 import org.junit.*;
 
 import docking.action.DockingActionIf;
+import docking.tool.ToolConstants;
+import docking.util.image.ToolIconURL;
 import docking.widgets.OptionDialog;
 import docking.widgets.filechooser.GhidraFileChooser;
 import generic.test.AbstractGTest;
@@ -44,9 +46,7 @@ import ghidra.framework.model.ToolChest;
 import ghidra.framework.model.ToolTemplate;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginException;
-import ghidra.framework.plugintool.util.ToolConstants;
 import ghidra.framework.preferences.Preferences;
-import ghidra.framework.project.tool.ToolIconURL;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.exception.AssertException;
@@ -163,7 +163,7 @@ public class SaveToolConfigDialogTest extends AbstractGhidraHeadedIntegrationTes
 
 		ImageIcon icon = ResourceManager.getScaledIcon(
 			ResourceManager.loadImage("defaultTools/images/Caution.png"),
-			ToolConstants.LARGE_ICON_SIZE, ToolConstants.LARGE_ICON_SIZE);
+			ToolIconURL.LARGE_ICON_SIZE, ToolIconURL.LARGE_ICON_SIZE);
 
 		assertEquals(icon.getDescription(), template.getIcon().getDescription());
 	}
@@ -315,7 +315,7 @@ public class SaveToolConfigDialogTest extends AbstractGhidraHeadedIntegrationTes
 
 	private void showDialogs() throws Exception {
 
-		DockingActionIf action = getAction(tool, "Tool", "Save Tool As");
+		DockingActionIf action = getAction(tool, ToolConstants.TOOL_OWNER, "Save Tool As");
 		performAction(action, false);
 		waitForSwing();
 

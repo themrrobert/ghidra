@@ -22,10 +22,10 @@ import javax.swing.KeyStroke;
 
 import docking.ActionContext;
 import docking.DockingUtils;
-import docking.action.DockingAction;
-import docking.action.KeyBindingData;
+import docking.action.*;
 import ghidra.app.plugin.core.navigation.FindAppliedDataTypesService;
 import ghidra.app.plugin.core.navigation.locationreferences.ReferenceUtils;
+import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.DataType;
@@ -33,6 +33,7 @@ import ghidra.util.*;
 
 public abstract class AbstractFindReferencesDataTypeAction extends DockingAction {
 
+	private static final String HELP_TOPIC = HelpTopics.FIND_REFERENCES;
 	public static final String NAME = "Find References To";
 	public static final KeyStroke DEFAULT_KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_F,
 		DockingUtils.CONTROL_KEY_MODIFIER_MASK | InputEvent.SHIFT_DOWN_MASK);
@@ -44,10 +45,10 @@ public abstract class AbstractFindReferencesDataTypeAction extends DockingAction
 
 	protected AbstractFindReferencesDataTypeAction(PluginTool tool, String name, String owner,
 			KeyStroke defaultKeyStroke) {
-		super(name, owner);
+		super(name, owner, KeyBindingType.SHARED);
 		this.tool = tool;
 
-		setHelpLocation(new HelpLocation("LocationReferencesPlugin", "Data_Types"));
+		setHelpLocation(new HelpLocation(HELP_TOPIC, "Data_Types"));
 		setDescription("Shows all uses of the selected data type");
 
 		initKeyStroke(defaultKeyStroke);
@@ -67,11 +68,6 @@ public abstract class AbstractFindReferencesDataTypeAction extends DockingAction
 		}
 
 		setKeyBindingData(new KeyBindingData(keyStroke));
-	}
-
-	@Override
-	public boolean usesSharedKeyBinding() {
-		return true;
 	}
 
 	@Override
